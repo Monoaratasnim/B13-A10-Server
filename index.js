@@ -1,0 +1,306 @@
+const express = require("express");
+const cors = require("cors");
+const { MongoClient, ObjectId } = require("mongodb");
+const Stripe = require("stripe");
+require("dotenv").config();
+
+const app = express();
+const port = process.env.PORT || 5000;
+
+// ================= STRIPE =================
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
+
+// ================= MIDDLEWARE =================
+app.use(cors());
+app.use(express.json());
+
+// IMPORTANT: Stripe webhook needs raw body
+app.use("/api/stripe/webhook", express.raw({ type: "application/json" }));
+
+// ================= DB =================
+const client = new MongoClient(process.env.MONGODB_URI);
+
+let ebookCollection;
+let userCollection;
+let purchaseCollection;
+
+// ================= CONNECT DB =================
+async function run() {
+  try {
+    await client.connect();
+    const db = client.db("fable");
+
+    ebookCollection = db.collection("ebooks");
+    userCollection = db.collection("user");
+    purchaseCollection = db.collection("purchases");
+
+    console.log("MongoDB Connected");
+  } catch (error) {
+    console.log(error);
+  }
+}
+run();
+
+// ================= HOME =================
+app.get("/", (req, res) => {
+  res.send("Fable Server Running...");
+});
+
+// ================= GET EBOOKS =================
+app.get("/api/ebooks", async (req, res) => {
+  try {
+    const page = Number(req.query.page) || 1;
+    const limit = Number(req.query.limit) || 8;
+    const skip = (page - 1) * limit;
+
+    const query = {};
+
+    if (req.query.search) {
+      query.title = {
+        $regex: req.query.search,
+        $options: "i",
+      };
+    }
+
+    if (req.query.genre && req.query.genre !== "all") {
+      query.genre = req.query.genre;
+    }
+
+    if (req.query.availability === "available") {
+      query.sold = false;
+    }
+
+    if (req.query.availability === "sold") {
+      query.sold = true;
+    }
+
+    if (req.query.minPrice || req.query.maxPrice) {
+      query.price = {};
+      if (req.query.minPrice) query.price.$gte = Number(req.query.minPrice);
+      if (req.query.maxPrice) query.price.$lte = Number(req.query.maxPrice);
+    }
+
+    let cursor = ebookCollection.find(query);
+
+    if (req.query.sort === "new") cursor = cursor.sort({ createdAt: -1 });
+    if (req.query.sort === "low") cursor = cursor.sort({ price: 1 });
+    if (req.query.sort === "high") cursor = cursor.sort({ price: -1 });
+
+    const total = await ebookCollection.countDocuments(query);
+    const ebooks = await cursor.skip(skip).limit(limit).toArray();
+
+    res.send({
+      ebooks,
+      totalPages: Math.ceil(total / limit),
+      total,
+    });
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch ebooks" });
+  }
+});
+
+// ================= SINGLE EBOOK =================
+app.get("/api/ebooks/:id", async (req, res) => {
+  try {
+    const ebook = await ebookCollection.findOne({
+      _id: new ObjectId(req.params.id),
+    });
+
+    if (!ebook) {
+      return res.status(404).send({ message: "Ebook not found" });
+    }
+
+    res.send(ebook);
+  } catch (error) {
+    res.status(500).send({ message: "Failed to fetch ebook" });
+  }
+});
+
+// ================= CHECK PURCHASE =================
+app.get("/api/check-purchase", async (req, res) => {
+  try {
+    const { ebookId, email } = req.query;
+
+    if (!ebookId || !email) {
+      return res.status(400).send({ purchased: false });
+    }
+
+    const purchase = await purchaseCollection.findOne({
+      ebookId: new ObjectId(ebookId),
+      userEmail: email,
+    });
+
+    res.send({ purchased: !!purchase });
+  } catch (error) {
+    res.status(500).send({ purchased: false });
+  }
+});
+
+// ================= BOOKMARK TOGGLE =================
+app.patch("/api/bookmarks", async (req, res) => {
+  try {
+    const { email, ebookId } = req.body;
+
+    let user = await userCollection.findOne({ email });
+
+    if (!user) {
+      await userCollection.insertOne({
+        email,
+        bookmarks: [ebookId],
+        createdAt: new Date(),
+      });
+
+      return res.send({ bookmarked: true });
+    }
+
+    const exists = (user.bookmarks || []).includes(ebookId);
+
+    if (exists) {
+      await userCollection.updateOne(
+        { email },
+        { $pull: { bookmarks: ebookId } }
+      );
+      return res.send({ bookmarked: false });
+    }
+
+    await userCollection.updateOne(
+      { email },
+      { $addToSet: { bookmarks: ebookId } }
+    );
+
+    res.send({ bookmarked: true });
+  } catch (error) {
+    res.status(500).send({ message: "Bookmark failed" });
+  }
+});
+
+// ================= GET BOOKMARKS =================
+app.get("/api/my-bookmarks", async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    if (!email) return res.send([]);
+
+    const user = await userCollection.findOne({ email });
+
+    if (!user?.bookmarks?.length) return res.send([]);
+
+    const ids = user.bookmarks.map((id) => new ObjectId(id));
+
+    const ebooks = await ebookCollection
+      .find({ _id: { $in: ids } })
+      .toArray();
+
+    res.send(ebooks);
+  } catch (error) {
+    res.status(500).send([]);
+  }
+});
+
+// ================= CREATE STRIPE CHECKOUT =================
+app.post("/api/create-checkout-session", async (req, res) => {
+  try {
+    const { ebookId, userEmail } = req.body;
+
+    const ebook = await ebookCollection.findOne({
+      _id: new ObjectId(ebookId),
+    });
+
+    if (!ebook) {
+      return res.status(404).send({ message: "Ebook not found" });
+    }
+
+    if (ebook.writerEmail === userEmail) {
+      return res.status(400).send({
+        message: "Writer cannot buy own ebook",
+      });
+    }
+
+    const session = await stripe.checkout.sessions.create({
+      payment_method_types: ["card"],
+      mode: "payment",
+
+      line_items: [
+        {
+          price_data: {
+            currency: "usd",
+            product_data: {
+              name: ebook.title,
+              description: ebook.description,
+            },
+            unit_amount: Math.round(Number(ebook.price) * 100),
+          },
+          quantity: 1,
+        },
+      ],
+
+      success_url: `${process.env.CLIENT_URL}/ebooks/${ebookId}?success=true`,
+      cancel_url: `${process.env.CLIENT_URL}/ebooks/${ebookId}?canceled=true`,
+
+      metadata: {
+        ebookId: String(ebookId),
+        userEmail: String(userEmail),
+      },
+    });
+
+    res.send({ url: session.url });
+  } catch (error) {
+    console.log(error);
+    res.status(500).send({ message: "Stripe error" });
+  }
+});
+
+// ================= STRIPE WEBHOOK (IMPORTANT) =================
+app.post("/api/stripe/webhook", async (req, res) => {
+  const sig = req.headers["stripe-signature"];
+
+  let event;
+
+  try {
+    event = stripe.webhooks.constructEvent(
+      req.body,
+      sig,
+      process.env.STRIPE_WEBHOOK_SECRET
+    );
+  } catch (err) {
+    return res.status(400).send(`Webhook Error: ${err.message}`);
+  }
+
+  if (event.type === "checkout.session.completed") {
+    const session = event.data.object;
+
+    const ebookId = session.metadata?.ebookId;
+    const userEmail = session.metadata?.userEmail;
+
+    try {
+      await purchaseCollection.updateOne(
+        { ebookId: new ObjectId(ebookId), userEmail },
+        {
+          $setOnInsert: {
+            ebookId: new ObjectId(ebookId),
+            userEmail,
+            amount: session.amount_total,
+            createdAt: new Date(),
+          },
+        },
+        { upsert: true }
+      );
+
+      await ebookCollection.updateOne(
+        { _id: new ObjectId(ebookId) },
+        { $set: { sold: true } }
+      );
+
+      console.log("✅ Purchase saved:", userEmail);
+    } catch (err) {
+      console.log("DB error:", err.message);
+    }
+  }
+
+  res.json({ received: true });
+});
+
+// ================= START SERVER =================
+app.listen(port, () => {
+  console.log(`Server running on port ${port}`);
+});
