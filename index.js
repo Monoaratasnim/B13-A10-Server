@@ -300,6 +300,161 @@ app.post("/api/stripe/webhook", async (req, res) => {
   res.json({ received: true });
 });
 
+// ================= ADD EBOOK =================
+app.post("/api/ebooks", async (req, res) => {
+  try {
+    const ebook = req.body;
+
+    const result = await ebookCollection.insertOne({
+      ...ebook,
+      sold: false,
+      published: true,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    res.send({
+      success: true,
+      insertedId: result.insertedId,
+    });
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      success: false,
+      message: "Failed to create ebook",
+    });
+  }
+});
+
+// ================= WRITER EBOOKS =================
+app.get("/api/writer/ebooks", async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    if (!email) {
+      return res.status(400).send({
+        message: "Writer email required",
+      });
+    }
+
+    const ebooks = await ebookCollection
+      .find({
+        writerEmail: email,
+      })
+      .sort({
+        createdAt: -1,
+      })
+      .toArray();
+
+    res.send(ebooks);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch ebooks",
+    });
+  }
+});
+
+// ================= GET SINGLE EBOOK =================
+app.get("/api/writer/ebooks/:id", async (req, res) => {
+  try {
+    const ebook = await ebookCollection.findOne({
+      _id: new ObjectId(req.params.id),
+    });
+
+    if (!ebook) {
+      return res.status(404).send({
+        message: "Ebook not found",
+      });
+    }
+
+    res.send(ebook);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch ebook",
+    });
+  }
+});
+
+// ================= UPDATE EBOOK =================
+app.put("/api/writer/ebooks/:id", async (req, res) => {
+  try {
+    const data = req.body;
+
+    const result = await ebookCollection.updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+      },
+      {
+        $set: {
+          title: data.title,
+          description: data.description,
+          price: Number(data.price),
+          genre: data.genre,
+          coverImage: data.coverImage,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    res.send(result);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Update failed",
+    });
+  }
+});
+
+// ================= DELETE EBOOK =================
+app.delete("/api/ebooks/:id", async (req, res) => {
+  try {
+    const result = await ebookCollection.deleteOne({
+      _id: new ObjectId(req.params.id),
+    });
+
+    res.send(result);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Delete failed",
+    });
+  }
+});
+
+// ================= TOGGLE PUBLISH =================
+app.patch("/api/ebooks/:id/publish", async (req, res) => {
+  try {
+    const { published } = req.body;
+
+    const result = await ebookCollection.updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+      },
+      {
+        $set: {
+          published,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    res.send(result);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Update failed",
+    });
+  }
+});
+
 // ================= START SERVER =================
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
