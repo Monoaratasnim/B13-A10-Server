@@ -455,6 +455,244 @@ app.patch("/api/ebooks/:id/publish", async (req, res) => {
   }
 });
 
+// ================= WRITER STATS =================
+app.get("/api/writer/stats", async (req, res) => {
+  try {
+    const email = req.query.email;
+
+    if (!email) {
+      return res.status(400).send({
+        message: "Writer email required",
+      });
+    }
+
+    // Writer ebooks
+    const ebooks = await ebookCollection
+      .find({
+        writerEmail: email,
+      })
+      .toArray();
+
+    const ebookIds = ebooks.map((ebook) => ebook._id);
+
+    // Sales
+    const sales = await purchaseCollection
+      .find({
+        ebookId: {
+          $in: ebookIds,
+        },
+      })
+      .toArray();
+
+    const totalEbooks = ebooks.length;
+    const totalSales = sales.length;
+
+    const totalRevenue = sales.reduce(
+      (sum, item) => sum + (item.amount || 0),
+      0
+    );
+
+    res.send({
+      totalEbooks,
+      totalSales,
+      totalRevenue,
+    });
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to load stats",
+    });
+  }
+});
+   
+// ================= ADMIN STATS =================
+app.get("/api/admin/stats", async (req, res) => {
+  try {
+    const totalUsers = await userCollection.countDocuments({
+      role: "user",
+    });
+
+    const totalWriters = await userCollection.countDocuments({
+      role: "writer",
+    });
+
+    const totalAdmins = await userCollection.countDocuments({
+      role: "admin",
+    });
+
+    const totalEbooks = await ebookCollection.countDocuments();
+
+    const totalSold = await purchaseCollection.countDocuments();
+
+    const purchases = await purchaseCollection.find().toArray();
+
+    const totalRevenue = purchases.reduce(
+      (sum, item) => sum + (item.amount || 0),
+      0
+    );
+
+    res.send({
+      totalUsers,
+      totalWriters,
+      totalAdmins,
+      totalEbooks,
+      totalSold,
+      totalRevenue,
+    });
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch admin stats",
+    });
+  }
+});
+// ================= ADMIN USERS =================
+app.get("/api/admin/users", async (req, res) => {
+  try {
+    const users = await userCollection
+      .find()
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send(users);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch users",
+    });
+  }
+});
+// ================= UPDATE USER ROLE =================
+app.patch("/api/admin/users/:id/role", async (req, res) => {
+  try {
+    const { role } = req.body;
+
+    const result = await userCollection.updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+      },
+      {
+        $set: {
+          role,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    res.send(result);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Role update failed",
+    });
+  }
+});
+// ================= DELETE USER =================
+app.delete("/api/admin/users/:id", async (req, res) => {
+  try {
+    const result = await userCollection.deleteOne({
+      _id: new ObjectId(req.params.id),
+    });
+
+    res.send(result);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Delete failed",
+    });
+  }
+});
+// ================= ADMIN EBOOKS =================
+app.get("/api/admin/ebooks", async (req, res) => {
+  try {
+    const ebooks = await ebookCollection
+      .find()
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    res.send(ebooks);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch ebooks",
+    });
+  }
+});
+// ================= ADMIN TOGGLE PUBLISH =================
+app.patch("/api/admin/ebooks/:id/publish", async (req, res) => {
+  try {
+    const { published } = req.body;
+
+    const result = await ebookCollection.updateOne(
+      {
+        _id: new ObjectId(req.params.id),
+      },
+      {
+        $set: {
+          published,
+          updatedAt: new Date(),
+        },
+      }
+    );
+
+    res.send(result);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Publish update failed",
+    });
+  }
+});
+// ================= ADMIN DELETE EBOOK =================
+app.delete("/api/admin/ebooks/:id", async (req, res) => {
+  try {
+    const result = await ebookCollection.deleteOne({
+      _id: new ObjectId(req.params.id),
+    });
+
+    res.send(result);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Delete failed",
+    });
+  }
+});
+// ================= ADMIN TRANSACTIONS =================
+app.get("/api/admin/transactions", async (req, res) => {
+  try {
+    const transactions = await purchaseCollection
+      .find()
+      .sort({ createdAt: -1 })
+      .toArray();
+
+    const formatted = transactions.map((item) => ({
+      _id: item._id,
+      transactionId: item._id,
+      type: "ebook purchase",
+      email: item.userEmail,
+      amount: item.amount,
+      date: item.createdAt,
+    }));
+
+    res.send(formatted);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch transactions",
+    });
+  }
+});
+
 // ================= START SERVER =================
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
