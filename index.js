@@ -12,10 +12,92 @@ const stripe = new Stripe(process.env.STRIPE_SECRET_KEY);
 
 // ================= MIDDLEWARE =================
 app.use(cors());
-app.use(express.json());
 
-// IMPORTANT: Stripe webhook needs raw body
-app.use("/api/stripe/webhook", express.raw({ type: "application/json" }));
+app.post(
+  "/api/stripe/webhook",
+  express.raw({ type: "application/json" }),
+  async (req, res) => {
+    const sig = req.headers["stripe-signature"];
+
+    let event;
+
+    try {
+      event = stripe.webhooks.constructEvent(
+        req.body,
+        sig,
+        process.env.STRIPE_WEBHOOK_SECRET
+      );
+    } catch (err) {
+      console.log("❌ Webhook Error:", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+
+      const ebookId = session.metadata.ebookId;
+      const userEmail = session.metadata.userEmail;
+
+      try {
+        const ebook = await ebookCollection.findOne({
+          _id: new ObjectId(ebookId),
+        });
+
+        await purchaseCollection.updateOne(
+          {
+            ebookId: new ObjectId(ebookId),
+            userEmail,
+          },
+          {
+            $setOnInsert: {
+              ebookId: new ObjectId(ebookId),
+
+              userEmail,
+
+              writerEmail: ebook.writerEmail,
+              writerName: ebook.writerName,
+
+              ebookTitle: ebook.title,
+
+              amount: session.amount_total / 100,
+
+              paymentIntent: session.payment_intent,
+              stripeSessionId: session.id,
+
+              status: "paid",
+
+              createdAt: new Date(),
+            },
+          },
+          {
+            upsert: true,
+          }
+        );
+
+        await ebookCollection.updateOne(
+          {
+            _id: new ObjectId(ebookId),
+          },
+          {
+            $set: {
+              sold: true,
+            },
+          }
+        );
+
+        console.log("✅ Purchase saved:", userEmail);
+      } catch (err) {
+        console.log("❌ Database Error:", err);
+      }
+    }
+
+    res.json({
+      received: true,
+    });
+  }
+);
+
+app.use(express.json());
 
 // ================= DB =================
 const client = new MongoClient(process.env.MONGODB_URI);
@@ -99,6 +181,23 @@ app.get("/api/ebooks", async (req, res) => {
   }
 });
 
+app.get("/api/ebooks/featured", async (req, res) => {
+  try {
+    const ebooks = await ebookCollection
+      .find({ published: true })
+      .sort({ createdAt: -1 })
+      .limit(6)
+      .toArray();
+
+    res.send(ebooks);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch featured ebooks",
+    });
+  }
+});
 // ================= SINGLE EBOOK =================
 app.get("/api/ebooks/:id", async (req, res) => {
   try {
@@ -115,6 +214,7 @@ app.get("/api/ebooks/:id", async (req, res) => {
     res.status(500).send({ message: "Failed to fetch ebook" });
   }
 });
+
 
 // ================= CHECK PURCHASE =================
 app.get("/api/check-purchase", async (req, res) => {
@@ -248,56 +348,6 @@ app.post("/api/create-checkout-session", async (req, res) => {
     console.log(error);
     res.status(500).send({ message: "Stripe error" });
   }
-});
-
-// ================= STRIPE WEBHOOK (IMPORTANT) =================
-app.post("/api/stripe/webhook", async (req, res) => {
-  const sig = req.headers["stripe-signature"];
-
-  let event;
-
-  try {
-    event = stripe.webhooks.constructEvent(
-      req.body,
-      sig,
-      process.env.STRIPE_WEBHOOK_SECRET
-    );
-  } catch (err) {
-    return res.status(400).send(`Webhook Error: ${err.message}`);
-  }
-
-  if (event.type === "checkout.session.completed") {
-    const session = event.data.object;
-
-    const ebookId = session.metadata?.ebookId;
-    const userEmail = session.metadata?.userEmail;
-
-    try {
-      await purchaseCollection.updateOne(
-        { ebookId: new ObjectId(ebookId), userEmail },
-        {
-          $setOnInsert: {
-            ebookId: new ObjectId(ebookId),
-            userEmail,
-            amount: session.amount_total,
-            createdAt: new Date(),
-          },
-        },
-        { upsert: true }
-      );
-
-      await ebookCollection.updateOne(
-        { _id: new ObjectId(ebookId) },
-        { $set: { sold: true } }
-      );
-
-      console.log("✅ Purchase saved:", userEmail);
-    } catch (err) {
-      console.log("DB error:", err.message);
-    }
-  }
-
-  res.json({ received: true });
 });
 
 // ================= ADD EBOOK =================
@@ -502,6 +552,74 @@ app.get("/api/writer/stats", async (req, res) => {
 
     res.status(500).send({
       message: "Failed to load stats",
+    });
+  }
+});
+app.get("/api/top-writers", async (req, res) => {
+  try {
+    const writers = await purchaseCollection
+      .aggregate([
+        {
+          $lookup: {
+            from: "ebooks",
+            localField: "ebookId",
+            foreignField: "_id",
+            as: "ebook",
+          },
+        },
+        {
+          $unwind: "$ebook",
+        },
+        {
+          $group: {
+            _id: "$ebook.writerEmail",
+            writerName: {
+              $first: "$ebook.writerName",
+            },
+            totalSales: {
+              $sum: 1,
+            },
+          },
+        },
+        {
+          $lookup: {
+            from: "user",
+            localField: "_id",
+            foreignField: "email",
+            as: "user",
+          },
+        },
+        {
+          $unwind: {
+            path: "$user",
+            preserveNullAndEmptyArrays: true,
+          },
+        },
+        {
+          $project: {
+            writerEmail: "$_id",
+            writerName: 1,
+            totalSales: 1,
+            avatar: "$user.image",
+          },
+        },
+        {
+          $sort: {
+            totalSales: -1,
+          },
+        },
+        {
+          $limit: 3,
+        },
+      ])
+      .toArray();
+
+    res.send(writers);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch top writers",
     });
   }
 });
