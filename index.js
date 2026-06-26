@@ -623,6 +623,35 @@ app.get("/api/top-writers", async (req, res) => {
     });
   }
 });
+// ================= WRITER SALES HISTORY =================
+app.get("/api/writer/sales", async (req, res) => {
+  try {
+    const { email } = req.query;
+
+    if (!email) {
+      return res.status(400).send({
+        message: "Writer email is required",
+      });
+    }
+
+    const sales = await purchaseCollection
+      .find({
+        writerEmail: email,
+      })
+      .sort({
+        createdAt: -1,
+      })
+      .toArray();
+
+    res.send(sales);
+  } catch (error) {
+    console.log(error);
+
+    res.status(500).send({
+      message: "Failed to fetch sales history",
+    });
+  }
+});
    
 // ================= ADMIN STATS =================
 app.get("/api/admin/stats", async (req, res) => {
@@ -664,6 +693,59 @@ app.get("/api/admin/stats", async (req, res) => {
     res.status(500).send({
       message: "Failed to fetch admin stats",
     });
+  }
+});
+app.get("/api/admin/monthly-sales", async (req, res) => {
+  try {
+    const purchases = await purchaseCollection.find().toArray();
+
+    const months = {};
+
+    purchases.forEach((item) => {
+      const month = new Date(item.createdAt).toLocaleString("default", {
+        month: "short",
+      });
+
+      months[month] = (months[month] || 0) + Number(item.amount);
+    });
+
+    const result = Object.keys(months).map((month) => ({
+      month,
+      revenue: months[month],
+    }));
+
+    res.send(result);
+  } catch (err) {
+    console.log(err);
+    res.status(500).send({ message: "Failed" });
+  }
+});
+app.get("/api/admin/genre-stats", async (req, res) => {
+  try {
+    const genres = await ebookCollection
+      .aggregate([
+        {
+          $group: {
+            _id: "$genre",
+            value: {
+              $sum: 1,
+            },
+          },
+        },
+        {
+          $project: {
+            _id: 0,
+            genre: "$_id",
+            value: 1,
+          },
+        },
+      ])
+      .toArray();
+
+    res.send(genres);
+  } catch (err) {
+    console.log(err);
+    res.status(500).send({ message: "Failed" });
   }
 });
 // ================= ADMIN USERS =================
