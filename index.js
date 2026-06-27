@@ -145,7 +145,7 @@ let purchaseCollection;
 // ================= CONNECT DB =================
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const db = client.db("fable");
 
     ebookCollection = db.collection("ebooks");
@@ -929,7 +929,7 @@ app.get("/api/admin/transactions",verifyToken, async (req, res) => {
   }
 });
 
-// ================= START SERVER =================
+// Start server
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });
