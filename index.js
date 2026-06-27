@@ -234,7 +234,7 @@ app.get("/api/ebooks/featured", async (req, res) => {
     });
   }
 });
-// ================= SINGLE EBOOK =================
+// =============== SINGLE EBOOK ===============
 app.get("/api/ebooks/:id", async (req, res) => {
   try {
     const ebook = await ebookCollection.findOne({
