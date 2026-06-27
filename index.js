@@ -801,7 +801,7 @@ app.get("/api/admin/users",verifyToken, async (req, res) => {
     });
   }
 });
-// ================= UPDATE USER ROLE =================
+// =============== UPDATE USER ROLE ===============
 app.patch("/api/admin/users/:id/role",verifyToken, async (req, res) => {
   try {
     const { role } = req.body;
@@ -827,7 +827,7 @@ app.patch("/api/admin/users/:id/role",verifyToken, async (req, res) => {
     });
   }
 });
-// ================= DELETE USER =================
+// ================ DELETE USER ================
 app.delete("/api/admin/users/:id",verifyToken, async (req, res) => {
   try {
     const result = await userCollection.deleteOne({
@@ -843,7 +843,7 @@ app.delete("/api/admin/users/:id",verifyToken, async (req, res) => {
     });
   }
 });
-// ================= ADMIN EBOOKS =================
+// =============== ADMIN EBOOKS ===============
 app.get("/api/admin/ebooks",verifyToken, async (req, res) => {
   try {
     const ebooks = await ebookCollection
