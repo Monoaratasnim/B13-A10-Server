@@ -514,7 +514,7 @@ app.delete("/api/ebooks/:id",verifyToken, async (req, res) => {
   }
 });
 
-// ================= TOGGLE PUBLISH =================
+// ================ TOGGLE PUBLISH ================
 app.patch("/api/ebooks/:id/publish",verifyToken, async (req, res) => {
   try {
     const { published } = req.body;
@@ -659,7 +659,7 @@ app.get("/api/top-writers", async (req, res) => {
     });
   }
 });
-// ================= WRITER SALES HISTORY =================
+// ================ WRITER SALES HISTORY ================
 app.get("/api/writer/sales",verifyToken, async (req, res) => {
   try {
     const { email } = req.query;
