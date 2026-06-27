@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const { MongoClient, ObjectId } = require("mongodb");
 const Stripe = require("stripe");
+const { createRemoteJWKSet, jwtVerify } = require("jose-cjs");
 require("dotenv").config();
 
 const app = express();
@@ -101,6 +102,41 @@ app.use(express.json());
 
 // ================= DB =================
 const client = new MongoClient(process.env.MONGODB_URI);
+const JWKS = createRemoteJWKSet(
+  new URL(`${process.env.CLIENT_URL}/api/auth/jwks`)
+);
+
+const verifyToken = async (req, res, next) => {
+  try {
+    const authHeader = req.headers.authorization;
+
+    if (!authHeader || !authHeader.startsWith("Bearer ")) {
+      return res.status(401).json({
+        msg: "Unauthorized",
+      });
+    }
+
+    const token = authHeader.split(" ")[1];
+
+    if (!token) {
+      return res.status(401).json({
+        msg: "Unauthorized",
+      });
+    }
+
+    const { payload } = await jwtVerify(token, JWKS);
+
+    req.user = payload;
+
+    next();
+  } catch (error) {
+    console.log(error);
+
+    return res.status(401).json({
+      msg: "Unauthorized",
+    });
+  }
+};
 
 let ebookCollection;
 let userCollection;
@@ -199,7 +235,7 @@ app.get("/api/ebooks/featured", async (req, res) => {
   }
 });
 // ================= SINGLE EBOOK =================
-app.get("/api/ebooks/:id", async (req, res) => {
+app.get("/api/ebooks/:id", verifyToken, async (req, res) => {
   try {
     const ebook = await ebookCollection.findOne({
       _id: new ObjectId(req.params.id),
@@ -237,7 +273,7 @@ app.get("/api/check-purchase", async (req, res) => {
 });
 
 // ================= BOOKMARK TOGGLE =================
-app.patch("/api/bookmarks", async (req, res) => {
+app.patch("/api/bookmarks", verifyToken, async (req, res) => {
   try {
     const { email, ebookId } = req.body;
 
@@ -275,7 +311,7 @@ app.patch("/api/bookmarks", async (req, res) => {
 });
 
 // ================= GET BOOKMARKS =================
-app.get("/api/my-bookmarks", async (req, res) => {
+app.get("/api/my-bookmarks", verifyToken, async (req, res) => {
   try {
     const email = req.query.email;
 
@@ -351,7 +387,7 @@ app.post("/api/create-checkout-session", async (req, res) => {
 });
 
 // ================= ADD EBOOK =================
-app.post("/api/ebooks", async (req, res) => {
+app.post("/api/ebooks",verifyToken, async (req, res) => {
   try {
     const ebook = req.body;
 
@@ -378,7 +414,7 @@ app.post("/api/ebooks", async (req, res) => {
 });
 
 // ================= WRITER EBOOKS =================
-app.get("/api/writer/ebooks", async (req, res) => {
+app.get("/api/writer/ebooks",verifyToken, async (req, res) => {
   try {
     const email = req.query.email;
 
@@ -408,7 +444,7 @@ app.get("/api/writer/ebooks", async (req, res) => {
 });
 
 // ================= GET SINGLE EBOOK =================
-app.get("/api/writer/ebooks/:id", async (req, res) => {
+app.get("/api/writer/ebooks/:id",verifyToken, async (req, res) => {
   try {
     const ebook = await ebookCollection.findOne({
       _id: new ObjectId(req.params.id),
@@ -431,7 +467,7 @@ app.get("/api/writer/ebooks/:id", async (req, res) => {
 });
 
 // ================= UPDATE EBOOK =================
-app.put("/api/writer/ebooks/:id", async (req, res) => {
+app.put("/api/writer/ebooks/:id",verifyToken, async (req, res) => {
   try {
     const data = req.body;
 
@@ -462,7 +498,7 @@ app.put("/api/writer/ebooks/:id", async (req, res) => {
 });
 
 // ================= DELETE EBOOK =================
-app.delete("/api/ebooks/:id", async (req, res) => {
+app.delete("/api/ebooks/:id",verifyToken, async (req, res) => {
   try {
     const result = await ebookCollection.deleteOne({
       _id: new ObjectId(req.params.id),
@@ -479,7 +515,7 @@ app.delete("/api/ebooks/:id", async (req, res) => {
 });
 
 // ================= TOGGLE PUBLISH =================
-app.patch("/api/ebooks/:id/publish", async (req, res) => {
+app.patch("/api/ebooks/:id/publish",verifyToken, async (req, res) => {
   try {
     const { published } = req.body;
 
@@ -506,7 +542,7 @@ app.patch("/api/ebooks/:id/publish", async (req, res) => {
 });
 
 // ================= WRITER STATS =================
-app.get("/api/writer/stats", async (req, res) => {
+app.get("/api/writer/stats",verifyToken, async (req, res) => {
   try {
     const email = req.query.email;
 
@@ -624,7 +660,7 @@ app.get("/api/top-writers", async (req, res) => {
   }
 });
 // ================= WRITER SALES HISTORY =================
-app.get("/api/writer/sales", async (req, res) => {
+app.get("/api/writer/sales",verifyToken, async (req, res) => {
   try {
     const { email } = req.query;
 
@@ -654,7 +690,7 @@ app.get("/api/writer/sales", async (req, res) => {
 });
    
 // ================= ADMIN STATS =================
-app.get("/api/admin/stats", async (req, res) => {
+app.get("/api/admin/stats",verifyToken, async (req, res) => {
   try {
     const totalUsers = await userCollection.countDocuments({
       role: "user",
@@ -695,7 +731,7 @@ app.get("/api/admin/stats", async (req, res) => {
     });
   }
 });
-app.get("/api/admin/monthly-sales", async (req, res) => {
+app.get("/api/admin/monthly-sales",verifyToken, async (req, res) => {
   try {
     const purchases = await purchaseCollection.find().toArray();
 
@@ -720,7 +756,7 @@ app.get("/api/admin/monthly-sales", async (req, res) => {
     res.status(500).send({ message: "Failed" });
   }
 });
-app.get("/api/admin/genre-stats", async (req, res) => {
+app.get("/api/admin/genre-stats",verifyToken, async (req, res) => {
   try {
     const genres = await ebookCollection
       .aggregate([
@@ -749,7 +785,7 @@ app.get("/api/admin/genre-stats", async (req, res) => {
   }
 });
 // ================= ADMIN USERS =================
-app.get("/api/admin/users", async (req, res) => {
+app.get("/api/admin/users",verifyToken, async (req, res) => {
   try {
     const users = await userCollection
       .find()
@@ -766,7 +802,7 @@ app.get("/api/admin/users", async (req, res) => {
   }
 });
 // ================= UPDATE USER ROLE =================
-app.patch("/api/admin/users/:id/role", async (req, res) => {
+app.patch("/api/admin/users/:id/role",verifyToken, async (req, res) => {
   try {
     const { role } = req.body;
 
@@ -792,7 +828,7 @@ app.patch("/api/admin/users/:id/role", async (req, res) => {
   }
 });
 // ================= DELETE USER =================
-app.delete("/api/admin/users/:id", async (req, res) => {
+app.delete("/api/admin/users/:id",verifyToken, async (req, res) => {
   try {
     const result = await userCollection.deleteOne({
       _id: new ObjectId(req.params.id),
@@ -808,7 +844,7 @@ app.delete("/api/admin/users/:id", async (req, res) => {
   }
 });
 // ================= ADMIN EBOOKS =================
-app.get("/api/admin/ebooks", async (req, res) => {
+app.get("/api/admin/ebooks",verifyToken, async (req, res) => {
   try {
     const ebooks = await ebookCollection
       .find()
@@ -825,7 +861,7 @@ app.get("/api/admin/ebooks", async (req, res) => {
   }
 });
 // ================= ADMIN TOGGLE PUBLISH =================
-app.patch("/api/admin/ebooks/:id/publish", async (req, res) => {
+app.patch("/api/admin/ebooks/:id/publish",verifyToken, async (req, res) => {
   try {
     const { published } = req.body;
 
@@ -851,7 +887,7 @@ app.patch("/api/admin/ebooks/:id/publish", async (req, res) => {
   }
 });
 // ================= ADMIN DELETE EBOOK =================
-app.delete("/api/admin/ebooks/:id", async (req, res) => {
+app.delete("/api/admin/ebooks/:id",verifyToken, async (req, res) => {
   try {
     const result = await ebookCollection.deleteOne({
       _id: new ObjectId(req.params.id),
@@ -867,7 +903,7 @@ app.delete("/api/admin/ebooks/:id", async (req, res) => {
   }
 });
 // ================= ADMIN TRANSACTIONS =================
-app.get("/api/admin/transactions", async (req, res) => {
+app.get("/api/admin/transactions",verifyToken, async (req, res) => {
   try {
     const transactions = await purchaseCollection
       .find()
