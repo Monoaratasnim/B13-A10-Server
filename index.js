@@ -333,7 +333,7 @@ app.get("/api/my-bookmarks", verifyToken, async (req, res) => {
   }
 });
 
-// ================= CREATE STRIPE CHECKOUT =================
+// ============= CREATE STRIPE CHECKOUT =============
 app.post("/api/create-checkout-session", async (req, res) => {
   try {
     const { ebookId, userEmail } = req.body;
