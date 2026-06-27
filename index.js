@@ -886,7 +886,7 @@ app.patch("/api/admin/ebooks/:id/publish",verifyToken, async (req, res) => {
     });
   }
 });
-// ================= ADMIN DELETE EBOOK =================
+// ================ ADMIN DELETE EBOOK ================
 app.delete("/api/admin/ebooks/:id",verifyToken, async (req, res) => {
   try {
     const result = await ebookCollection.deleteOne({
@@ -902,7 +902,7 @@ app.delete("/api/admin/ebooks/:id",verifyToken, async (req, res) => {
     });
   }
 });
-// ================= ADMIN TRANSACTIONS =================
+// ============= ADMIN TRANSACTIONS =============
 app.get("/api/admin/transactions",verifyToken, async (req, res) => {
   try {
     const transactions = await purchaseCollection
