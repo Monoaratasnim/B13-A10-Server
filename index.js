@@ -252,7 +252,7 @@ app.get("/api/ebooks/:id", verifyToken, async (req, res) => {
 });
 
 
-// ================= CHECK PURCHASE =================
+// ================ CHECK PURCHASE =================
 app.get("/api/check-purchase", async (req, res) => {
   try {
     const { ebookId, email } = req.query;
@@ -272,7 +272,7 @@ app.get("/api/check-purchase", async (req, res) => {
   }
 });
 
-// ================= BOOKMARK TOGGLE =================
+// ================ BOOKMARK TOGGLE ================
 app.patch("/api/bookmarks", verifyToken, async (req, res) => {
   try {
     const { email, ebookId } = req.body;
@@ -310,7 +310,7 @@ app.patch("/api/bookmarks", verifyToken, async (req, res) => {
   }
 });
 
-// ================= GET BOOKMARKS =================
+// =============== GET BOOKMARKS ===============
 app.get("/api/my-bookmarks", verifyToken, async (req, res) => {
   try {
     const email = req.query.email;
