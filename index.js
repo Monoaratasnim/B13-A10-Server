@@ -235,7 +235,7 @@ app.get("/api/ebooks/featured", async (req, res) => {
   }
 });
 // ================= SINGLE EBOOK =================
-app.get("/api/ebooks/:id", verifyToken, async (req, res) => {
+app.get("/api/ebooks/:id", async (req, res) => {
   try {
     const ebook = await ebookCollection.findOne({
       _id: new ObjectId(req.params.id),
